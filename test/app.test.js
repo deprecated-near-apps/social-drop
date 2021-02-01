@@ -12,62 +12,53 @@ const { GAS } = getConfig();
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 50000;
 
 describe('deploy contract ' + contractName, () => {
-	let alice, bobPublicKey, implicitAccountId;
+	let alice, bob, bobPublicKey, implicitAccountId;
     
-	const testMessage = "hello world!";
+	const DROP_AMOUNT = 100;
 
 	beforeAll(async () => {
 		alice = await getAccount();
 		await initContract(alice.accountId);
 	});
 
-	test('contract hash', async () => {
-		let state = (await new Account(connection, contractName)).state();
-		expect(state.code_hash).not.toEqual('11111111111111111111111111111111');
-	});
+	// test('contract hash', async () => {
+	// 	let state = (await new Account(connection, contractName)).state();
+	// 	expect(state.code_hash).not.toEqual('11111111111111111111111111111111');
+	// });
 
-	test('check create', async () => {
+	test('check drop', async () => {
 		const contract = await getContract(alice);
 
-		await contract.create({
-			message: testMessage,
-			amount: parseNearAmount('1'),
-			owner: alice.accountId
-		}, GAS);
+		await contract.drop({}, GAS);
         
 		const accessKeys = await alice.getAccessKeys();
-		const tx = await contract.get_message({ public_key: accessKeys[0].public_key });
-		expect(tx.message).toEqual(testMessage);
+		const balance = await contract.get_balance_dropped({ public_key: accessKeys[0].public_key });
+		expect(parseInt(balance, 10)).toEqual(DROP_AMOUNT);
 	});
 
 	test('check create with no near', async () => {
 		const keyPair = KeyPair.fromRandom('ed25519');
-		const public_key = bobPublicKey = keyPair.publicKey.toString();
-		implicitAccountId = Buffer.from(keyPair.publicKey.data).toString('hex');
+        const public_key = bobPublicKey = keyPair.publicKey.toString();
 
-		// typically done on server (sybil/captcha)
-		await contractAccount.addKey(public_key, contractName, contractMethods.changeMethods, parseNearAmount('0.1'));
+        // contract owner adding key for drop on server side
+        await contractAccount.addKey(public_key, contractName, contractMethods.changeMethods, parseNearAmount('0.1'));
 
-		const bob = createAccessKeyAccount(keyPair);
-        
+        // get bob account instance for keyPair (acting as accountId === contractName)
+		bob = createAccessKeyAccount(keyPair);
 		const contract = await getContract(bob);
-		await contract.create({
-			message: testMessage,
-			amount: parseNearAmount('1'),
-			owner: implicitAccountId
-		}, GAS);
-        
-		const result = await contract.get_message({ public_key });
-		expect(result.message).toEqual(testMessage);
-	});
+		await contract.drop({}, GAS);
+		const balance = await contract.get_balance_dropped({ public_key });
+        expect(parseInt(balance, 10)).toEqual(DROP_AMOUNT);
+    });
+    
 
-	test('check purchase and credit bob (implicitAccountId)', async () => {
-		const contract = await getContract(alice);
-		const alicePurchased = await contract.purchase({ public_key: bobPublicKey}, GAS, parseNearAmount('1'));
-		expect(alicePurchased.message).toEqual(testMessage);
-		bob = await getAccount(implicitAccountId);
-		const bobbyBalance = (await bob.state()).amount;
-		expect(bobbyBalance).toEqual(parseNearAmount('1').toString());
+
+	test('transfer dropped tokens', async () => {
+        const contract = await getContract(bob);
+        const account_id = alice.accountId
+        await contract.transfer({ account_id }, GAS);
+        const balance = await contract.get_balance_tokens({ account_id });
+		expect(parseInt(balance, 10)).toEqual(DROP_AMOUNT);
 	});
 
 });

@@ -6,65 +6,62 @@ use near_sdk::{
 };
 use serde::Serialize;
 
+const DROP_AMOUNT: U128 = U128(100);
+
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[near_bindgen]
 
-#[derive(Debug, Serialize, BorshDeserialize, BorshSerialize)]
-pub struct MessageForSale {
-    pub owner: AccountId,
-    pub message: String,
-    pub amount: U128,
-}
-
 #[derive(BorshDeserialize, BorshSerialize)]
-pub struct Messages {
+pub struct SocialDrop {
     pub owner_id: AccountId,
-    pub messages: UnorderedMap<PublicKey, MessageForSale>,
+    pub dropped: UnorderedMap<PublicKey, U128>,
+    pub tokens: UnorderedMap<AccountId, U128>,
 }
 
-impl Default for Messages {
+impl Default for SocialDrop {
     fn default() -> Self {
         panic!("Should be initialized before usage")
     }
 }
 
 #[near_bindgen]
-impl Messages {
+impl SocialDrop {
     #[init]
     pub fn new(owner_id: AccountId) -> Self {
         assert!(env::is_valid_account_id(owner_id.as_bytes()), "Invalid owner account");
         assert!(!env::state_exists(), "Already initialized");
         Self {
             owner_id,
-            messages: UnorderedMap::new(b"messages".to_vec()),
+            dropped: UnorderedMap::new(b"dropped".to_vec()),
+            tokens: UnorderedMap::new(b"tokens".to_vec()),
         }
     }
 
-    pub fn create(&mut self, message: String, amount: U128, owner: AccountId) {
-        let signer_pk = env::signer_account_pk();
-        assert!(self.messages.get(&signer_pk).is_none(), "Message exists");
-        self.messages.insert(&signer_pk, &MessageForSale {
-            owner,
-            message,
-            amount,
-        });
+    pub fn drop(&mut self) {
+        let public_key: PublicKey = env::signer_account_pk();
+        assert_eq!(env::signer_account_id(), env::predecessor_account_id(), "Key not from app contract");
+        let balance:U128 = self.dropped.get(&public_key.clone()).unwrap_or(U128(0));
+        assert_eq!(balance, U128(0), "Tokens already dropped");
+        self.dropped.insert(&public_key, &DROP_AMOUNT);
     }
 
-    #[payable]
-    pub fn purchase(&mut self, public_key: Base58PublicKey) -> MessageForSale {
-        let deposit = env::attached_deposit();
-        let pk: PublicKey = public_key.into();
-        let message = self.messages.get(&pk).expect("No message");
-        assert!(deposit == message.amount.clone().into(), "Not enough tokens");
-        self.messages.remove(&pk);
-        Promise::new(message.owner.clone()).transfer(deposit);
-        message
+    pub fn transfer(&mut self, account_id: AccountId) {
+        let public_key: PublicKey = env::signer_account_pk();
+        assert_eq!(env::signer_account_id(), env::predecessor_account_id(), "Key not from app contract");
+        let balance:U128 = self.dropped.get(&public_key.clone()).unwrap_or(U128(0));
+        assert_ne!(balance, U128(0), "No tokens");
+        self.dropped.remove(&public_key);
+        self.tokens.insert(&account_id.into(), &balance);
     }
 
-    pub fn get_message(&self, public_key: Base58PublicKey) -> MessageForSale {
-        self.messages.get(&public_key.into()).expect("No message")
+    pub fn get_balance_dropped(&self, public_key: Base58PublicKey) -> U128 {
+        self.dropped.get(&public_key.into()).unwrap_or(U128(0))
+    }
+
+    pub fn get_balance_tokens(&self, account_id: AccountId) -> U128 {
+        self.tokens.get(&account_id.into()).unwrap_or(U128(0))
     }
 }
 
@@ -84,7 +81,7 @@ mod tests {
         VMContext {
             predecessor_account_id: "alice.testnet".to_string(),
             current_account_id: "alice.testnet".to_string(),
-            signer_account_id: "bob.testnet".to_string(),
+            signer_account_id: "alice.testnet".to_string(),
             signer_account_pk: vec![0],
             input: vec![],
             block_index: 0,
@@ -106,54 +103,48 @@ mod tests {
         let mut context = get_context();
         context.signer_account_pk = Base58PublicKey::try_from("ed25519:Eg2jtsiMrprn7zgKKUk79qM1hWhANsFyE6JSX4txLEuy").unwrap().into();
         testing_env!(context.clone());
-        let mut contract = Messages::new(context.current_account_id.clone());
-        contract.create("hello world!".to_string(), ntoy(10), "alice.testnet".to_string());
-        let message = contract.get_message(Base58PublicKey::try_from("Eg2jtsiMrprn7zgKKUk79qM1hWhANsFyE6JSX4txLEuy").unwrap());
-        assert_eq!(message.message, "hello world!");
+        let mut contract = SocialDrop::new(context.current_account_id.clone());
+        contract.drop();
+        let balance: U128 = contract.get_balance_dropped(context.signer_account_pk);
+        assert_eq!(balance, DROP_AMOUNT);
     }
 
     #[test]
-    fn purchase() {
+    fn transfer() {
         let mut context = get_context();
         context.signer_account_pk = Base58PublicKey::try_from("ed25519:Eg2jtsiMrprn7zgKKUk79qM1hWhANsFyE6JSX4txLEuy").unwrap().into();
         testing_env!(context.clone());
-        let mut contract = Messages::new(context.current_account_id.clone());
-        contract.create("hello world!".to_string(), ntoy(10), "alice.testnet".to_string());
-        context.signer_account_pk = Base58PublicKey::try_from("ed25519:Bg2jtsiMrprn7zgKKUk79qM1hWhANsFyE6JSX4txLEuy").unwrap().into();
-        context.account_balance = ntoy(1000).into();
-        context.attached_deposit = ntoy(10).into();
-        testing_env!(context.clone());
-        let message = contract.purchase(Base58PublicKey::try_from("ed25519:Eg2jtsiMrprn7zgKKUk79qM1hWhANsFyE6JSX4txLEuy").unwrap());
-        assert_eq!(message.message, "hello world!");
-    }
-
-    #[test]
-    #[should_panic(
-        expected = r#"Message exists"#
-    )]
-    fn panic_create() {
-        let mut context = get_context();
-        context.signer_account_pk = Base58PublicKey::try_from("ed25519:Eg2jtsiMrprn7zgKKUk79qM1hWhANsFyE6JSX4txLEuy").unwrap().into();
-        testing_env!(context.clone());
-        let mut contract = Messages::new(context.current_account_id.clone());
-        contract.create("hello world!".to_string(), ntoy(10), "alice.testnet".to_string());
-        contract.create("hello world!".to_string(), ntoy(10), "alice.testnet".to_string());
+        let mut contract = SocialDrop::new(context.current_account_id.clone());
+        contract.drop();
+        contract.transfer("bob.testnet".to_string());
+        let balance: U128 = contract.get_balance_tokens("bob.testnet".to_string());
+        assert_eq!(balance, DROP_AMOUNT);
     }
     
+
     #[test]
     #[should_panic(
-        expected = r#"No message"#
+        expected = r#"Tokens already dropped"#
     )]
-    fn panic_purchase() {
+    fn panic_double_drop() {
         let mut context = get_context();
         context.signer_account_pk = Base58PublicKey::try_from("ed25519:Eg2jtsiMrprn7zgKKUk79qM1hWhANsFyE6JSX4txLEuy").unwrap().into();
         testing_env!(context.clone());
-        let mut contract = Messages::new(context.current_account_id.clone());
-        contract.create("hello world!".to_string(), ntoy(10), "alice.testnet".to_string());
-        context.signer_account_pk = vec![4,5,6];
-        context.account_balance = ntoy(1000).into();
-        context.attached_deposit = ntoy(10).into();
+        let mut contract = SocialDrop::new(context.current_account_id.clone());
+        contract.drop();
+        contract.drop();
+        
+    }
+
+    #[test]
+    #[should_panic(
+        expected = r#"No tokens"#
+    )]
+    fn panic_transfer_no_drop() {
+        let mut context = get_context();
+        context.signer_account_pk = Base58PublicKey::try_from("ed25519:Eg2jtsiMrprn7zgKKUk79qM1hWhANsFyE6JSX4txLEuy").unwrap().into();
         testing_env!(context.clone());
-        contract.purchase(Base58PublicKey::try_from("ed25519:Bg2jtsiMrprn7zgKKUk79qM1hWhANsFyE6JSX4txLEuy").unwrap());
+        let mut contract = SocialDrop::new(context.current_account_id.clone());
+        contract.transfer("bob.testnet".to_string());
     }
 }

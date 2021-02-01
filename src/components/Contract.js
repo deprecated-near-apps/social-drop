@@ -14,107 +14,67 @@ const {
 export const Contract = ({ near, update, localKeys = {}, account }) => {
 	if (!localKeys || !localKeys.accessPublic) return null;
 
-	const [message, setMessage] = useState('');
-	const [amount, setAmount] = useState('');
-	const [messageForSale, setMessageForSale] = useState();
-	const [purchaseKey, setPurchaseKey] = useState('');
+	const [balanceDropped, setBalanceDropped] = useState('0');
+	const [balanceTokens, setBalanceTokens] = useState('0');
+	const [receiver, setReceiver] = useState('');
     
 	useEffect(() => {
 		if (!localKeys.accessPublic) return;
-		loadMessage();
+		checkDrop();
 	}, [localKeys.accessPublic]);
 
 
-	const loadMessage = async () => {
+	const checkDrop = async () => {
 		const contract = getContract(createAccessKeyAccount(near, KeyPair.fromString(localKeys.accessSecret)));
-		try {
-			const result = await contract.get_message({ public_key: localKeys.accessPublic });
-			result.amount = formatNearAmount(result.amount, 2);
-			console.log(result);
-			setMessageForSale(result);
-			setPurchaseKey(localKeys.accessPublic);
-		} catch (e) {
-			if (!/No message/.test(e.toString())) {
-				throw e;
-			}
-		}
+		setBalanceDropped(await contract.get_balance_dropped({ public_key: localKeys.accessPublic }));
+    };
+    
+    const checkReceiver = async () => {
+		const contract = getContract(createAccessKeyAccount(near, KeyPair.fromString(localKeys.accessSecret)));
+		setBalanceTokens(await contract.get_balance_tokens({ account_id: receiver }));
 	};
 
-	const handleCreateMessage = async () => {
-		if (!message.length || !amount.length) {
-			alert('Please enter a message and amount!');
-			return;
-		}
-		update('loading', true);
-		const appAccount = createAccessKeyAccount(near, KeyPair.fromString(localKeys.accessSecret));
-		const contract = getContract(appAccount);
-		await contract.create({
-			message,
-			amount: parseNearAmount(amount),
-			owner: localKeys.accountId
-		}, GAS);
-		await loadMessage();
-		update('loading', false);
+	const handleClaimDrop = async () => {
+        const contract = getContract(createAccessKeyAccount(near, KeyPair.fromString(localKeys.accessSecret)));
+        try {
+            await contract.drop({}, GAS)
+        } catch (e) {
+            if (!/Tokens already dropped/.test(e.toString())) {
+                throw e
+            }
+            alert('Tokens already dropped')
+        }
+        checkDrop()
 	};
 
-	const handleBuyMessage = async () => {
-		if (!purchaseKey.length) {
-			alert('Please enter an app key selling a message');
-			return;
-		}
-		update('loading', true);
-		const contract = getContract(account);
-		let result;
-		try {
-			result = await contract.get_message({ public_key: purchaseKey });
-		} catch (e) {
-			if (!/No message/.test(e.toString())) {
-				throw e;
-			}
-			alert('Please enter an app key selling a message');
-			update('loading', false);
-			return;
-		}
-		if (!window.confirm(`Purchase message: "${result.message}" for ${formatNearAmount(result.amount, 2)} N ?`)) {
-			update('loading', false);
-			return;
-		}
-		const purchasedMessage = await contract.purchase({ public_key: purchaseKey }, GAS, result.amount);
-		console.log(purchasedMessage);
-		await loadMessage();
-		update('loading', false);
+	const handleTransfer = async () => {
+		if (!receiver.length) {
+            alert('set a receiver')
+            return
+        }
+        const contract = getContract(createAccessKeyAccount(near, KeyPair.fromString(localKeys.accessSecret)));
+        try {
+            await contract.transfer({ account_id: receiver}, GAS)
+        } catch (e) {
+            if (!/No tokens/.test(e.toString())) {
+                throw e
+            }
+            alert('No tokens')
+        }
+        checkDrop()
+        checkReceiver()
 	};
 
 	return <>
-		{
-			messageForSale ?
-				<>
-					<h3>Message for Sale</h3>
-					<p><b>App Key:</b> { localKeys.accessPublic }</p>
-					<p><b>Message:</b> { messageForSale.message }</p>
-					<p><b>Amount:</b> { messageForSale.amount }</p>
-				</> :
-				<>
-					<h3>Sell a Message</h3>
-					<p>Seller Account Id: { localKeys.accountId }</p>
-					<p>Using App Key: { localKeys.accessPublic }</p>
-					<input placeholder="Message" value={message} onChange={(e) => setMessage(e.target.value)} />
-					<br />
-					<input placeholder="Amount (N)" value={amount} onChange={(e) => setAmount(e.target.value)} />
-					<br />
-					<button onClick={() => handleCreateMessage()}>Create Message</button>
-				</>
-		}
-		{
-			account &&
-            <>
-            	<h3>Buy a Message</h3>
-            	<input placeholder="App Key" value={purchaseKey} onChange={(e) => setPurchaseKey(e.target.value)} />
-            	<br />
-            	<button onClick={() => handleBuyMessage()}>Buy Message</button>
-            </>
-		}
-		
+		<h3>Social Token Drop Zone</h3>
+        <p>Dropped Tokens to App Key: { balanceDropped }</p>
+        <button onClick={() => handleClaimDrop()}>Claim Drop</button>
+        <button onClick={() => handleTransfer()}>Transfer Dropped Tokens to AccountId</button>
+        <br />
+        <p>Receiver Tokens: { balanceTokens }</p>
+        <input value={receiver} onChange={(e) => setReceiver(e.target.value)} placeholder="AccountId of Receiver" />
+        <br />
+        <button onClick={() => checkReceiver()}>Check Receiver Balance</button>
 	</>;
 };
 

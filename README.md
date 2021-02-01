@@ -1,3 +1,14 @@
+# Social Token Drop TEMPLATE
+
+WARNING - this repo is incomplete
+
+There are many things to do to make it an actual Social Token dropping app. It's a good place to start if you want to learn.
+
+I will hopefully be making some updates to this and additionally releasing a version that works with a standard fungible token on NEAR protocol. Stay Tuned.
+
+It's a companion to the video here:
+[![Live App Review 2 - Social Token Drop](https://img.youtube.com/vi/IWHmG6WCiPA/0.jpg)](https://www.youtube.com/watch?v=IWHmG6WCiPA)
+
 # NEAR App Boilerplate
 
 Most of this repo is how to use React 17 with useContext and useReducer.
