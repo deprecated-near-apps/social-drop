@@ -38,26 +38,26 @@ describe('deploy contract ' + contractName, () => {
 
 	test('check create with no near', async () => {
 		const keyPair = KeyPair.fromRandom('ed25519');
-        const public_key = bobPublicKey = keyPair.publicKey.toString();
+		const public_key = bobPublicKey = keyPair.publicKey.toString();
 
-        // contract owner adding key for drop on server side
-        await contractAccount.addKey(public_key, contractName, contractMethods.changeMethods, parseNearAmount('0.1'));
+		// contract owner adding key for drop on server side
+		await contractAccount.addKey(public_key, contractName, contractMethods.changeMethods, parseNearAmount('0.1'));
 
-        // get bob account instance for keyPair (acting as accountId === contractName)
+		// get bob account instance for keyPair (acting as accountId === contractName)
 		bob = createAccessKeyAccount(keyPair);
 		const contract = await getContract(bob);
 		await contract.drop({}, GAS);
 		const balance = await contract.get_balance_dropped({ public_key });
-        expect(parseInt(balance, 10)).toEqual(DROP_AMOUNT);
-    });
+		expect(parseInt(balance, 10)).toEqual(DROP_AMOUNT);
+	});
     
 
 
 	test('transfer dropped tokens', async () => {
-        const contract = await getContract(bob);
-        const account_id = alice.accountId
-        await contract.transfer({ account_id }, GAS);
-        const balance = await contract.get_balance_tokens({ account_id });
+		const contract = await getContract(bob);
+		const account_id = alice.accountId;
+		await contract.transfer({ account_id }, GAS);
+		const balance = await contract.get_balance_tokens({ account_id });
 		expect(parseInt(balance, 10)).toEqual(DROP_AMOUNT);
 	});
 
